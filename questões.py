@@ -183,7 +183,7 @@ else:
                                 st.success(msg)
                             else:
                                 if st.session_state.usuario == "Adrielle":
-                                    msg = random.choice(["errou feio, errou rude", "errou, véia pôde"])
+                                    msg = random.choice(["errou feio, errou rude.  ", "errou, véia pôde.  "])
                                 else:
                                     msg = "❌ Resposta Incorreta."
                                 st.error(f"{msg} A correta era: {q['resposta_correta']}")
