@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import pandas as pd
 import uuid
+import random
 from supabase import create_client, Client
 
 # --- CONFIGURAÇÕES INICIAIS ---
@@ -74,71 +75,96 @@ else:
     questoes = carregar_questoes()
 
     # --- ABA 1: RESOLVER QUESTÕES ---
-   # --- ABA 1: RESOLVER QUESTÕES ---
+  # --- ABA 1: RESOLVER QUESTÕES ---
     with aba_resolver:
         st.header("Resolver Questões")
         
-        # 1. Puxa todos os resultados do banco e filtra apenas os do usuário logado
+        # Puxa histórico para os filtros
         resultados_totais = carregar_resultados()
         meus_resultados = [r for r in resultados_totais if r.get('usuario') == st.session_state.usuario]
-        
-        # 2. Cria conjuntos (sets) com os IDs para facilitar o filtro de histórico
         questoes_feitas = set([r['id_questao'] for r in meus_resultados])
         questoes_erradas = set([r['id_questao'] for r in meus_resultados if not r['acertou']])
         
         if not questoes:
             st.warning("Nenhuma questão cadastrada ainda. Vá para a aba 'Adicionar Questões'.")
         else:
-            # Organiza os filtros em 3 colunas para ficar visualmente agradável
             col1, col2, col3 = st.columns(3)
             
-            # Filtro 1: Histórico
+            # Filtro de Histórico com o Simulado
             filtro_historico = col1.selectbox(
                 "Histórico:", 
-                ["Todas", "Nunca feitas", "Já feitas", "Só as que errei"]
+                ["Todas", "Nunca feitas", "Já feitas", "Só as que errei", "Simulado (40 questões)"]
             )
             
-            # Aplica o filtro de histórico primeiro
-            questoes_filtradas = questoes
-            if filtro_historico == "Nunca feitas":
-                questoes_filtradas = [q for q in questoes_filtradas if q['id'] not in questoes_feitas]
-            elif filtro_historico == "Já feitas":
-                questoes_filtradas = [q for q in questoes_filtradas if q['id'] in questoes_feitas]
-            elif filtro_historico == "Só as que errei":
-                questoes_filtradas = [q for q in questoes_filtradas if q['id'] in questoes_erradas]
+            # --- LÓGICA DO SIMULADO ---
+            if filtro_historico == "Simulado (40 questões)":
+                # Congela o simulado na sessão para ele não embaralhar a cada clique
+                if 'simulado_gerado' not in st.session_state or st.session_state.get('filtro_atual') != "Simulado (40 questões)":
+                    q_inf = [q for q in questoes if q.get("bloco") == "Informática"]
+                    q_cg = [q for q in questoes if q.get("bloco") == "Conhecimentos Gerais"]
+                    q_ce = [q for q in questoes if q.get("bloco") == "Conhecimentos Específicos"]
+                    
+                    # Puxa a quantidade exata (ou o máximo que tiver no banco, caso falte)
+                    s_inf = random.sample(q_inf, min(10, len(q_inf)))
+                    s_cg = random.sample(q_cg, min(10, len(q_cg)))
+                    s_ce = random.sample(q_ce, min(20, len(q_ce)))
+                    
+                    simulado = s_inf + s_cg + s_ce
+                    random.shuffle(simulado) # Embaralha a prova inteira
+                    st.session_state.simulado_gerado = simulado
+                    
+                questoes_filtradas = st.session_state.simulado_gerado
+                st.session_state.filtro_atual = filtro_historico
+                
+                # Desativa visualmente os outros filtros, pois o simulado é fixo
+                bloco_selecionado = "Todos"
+                tema_selecionado = "Todos"
+                col2.info("Filtros desativados no modo Simulado.")
+                col3.info("Boa sorte na prova!")
+                
+            # --- LÓGICA NORMAL ---
+            else:
+                st.session_state.filtro_atual = filtro_historico
+                questoes_filtradas = questoes
+                
+                if filtro_historico == "Nunca feitas":
+                    questoes_filtradas = [q for q in questoes_filtradas if q['id'] not in questoes_feitas]
+                elif filtro_historico == "Já feitas":
+                    questoes_filtradas = [q for q in questoes_filtradas if q['id'] in questoes_feitas]
+                elif filtro_historico == "Só as que errei":
+                    questoes_filtradas = [q for q in questoes_filtradas if q['id'] in questoes_erradas]
 
-            # Filtro 2: Bloco (baseado apenas no que sobrou do filtro anterior)
-            blocos_disponiveis = list(set([q.get("bloco", "") for q in questoes_filtradas]))
-            bloco_selecionado = col2.selectbox("Escolha o Bloco:", ["Todos"] + blocos_disponiveis)
-            
-            if bloco_selecionado != "Todos":
-                questoes_filtradas = [q for q in questoes_filtradas if q.get("bloco") == bloco_selecionado]
-            
-            # Filtro 3: Tema (baseado apenas no que sobrou do bloco)
-            temas_disponiveis = list(set([q.get("tema", "") for q in questoes_filtradas]))
-            tema_selecionado = col3.selectbox("Escolha o Tema:", ["Todos"] + temas_disponiveis)
-            
-            if tema_selecionado != "Todos":
-                questoes_filtradas = [q for q in questoes_filtradas if q.get("tema") == tema_selecionado]
+                blocos_disponiveis = list(set([q.get("bloco", "") for q in questoes_filtradas]))
+                bloco_selecionado = col2.selectbox("Escolha o Bloco:", ["Todos"] + blocos_disponiveis)
+                
+                if bloco_selecionado != "Todos":
+                    questoes_filtradas = [q for q in questoes_filtradas if q.get("bloco") == bloco_selecionado]
+                
+                temas_disponiveis = list(set([q.get("tema", "") for q in questoes_filtradas]))
+                tema_selecionado = col3.selectbox("Escolha o Tema:", ["Todos"] + temas_disponiveis)
+                
+                if tema_selecionado != "Todos":
+                    questoes_filtradas = [q for q in questoes_filtradas if q.get("tema") == tema_selecionado]
 
-            # Exibição dos resultados após todos os filtros
+            # --- EXIBIÇÃO DAS QUESTÕES ---
             if not questoes_filtradas:
-                st.info("Nenhuma questão encontrada com estes filtros. Que tal mudar as opções acima?")
+                st.info("Nenhuma questão encontrada com estes filtros.")
             else:
                 st.write(f"**{len(questoes_filtradas)} questões prontas para você.**")
+                if filtro_historico == "Simulado (40 questões)" and len(questoes_filtradas) < 40:
+                    st.caption("*(Nota: Há menos de 40 questões porque o banco de dados ainda não tem o número exigido para preencher todos os blocos)*")
                 st.divider()
                 
-                # Exibição das questões na tela
                 for i, q in enumerate(questoes_filtradas):
                     st.markdown(f"**Q{i+1}. ({q['bloco']} - {q['tema']})** {q['enunciado']}")
                     
+                    # O retorno do st.radio simples e original!
                     resposta_usuario = st.radio("Alternativas:", q['opcoes'], key=f"radio_{q['id']}", index=None)
                     
                     if st.button("Responder", key=f"btn_{q['id']}"):
                         if resposta_usuario:
                             acertou = (resposta_usuario == q['resposta_correta'])
                             
-                            # Salva o resultado no Supabase
                             novo_resultado = {
                                 "usuario": st.session_state.usuario,
                                 "id_questao": q['id'],
@@ -148,17 +174,25 @@ else:
                             }
                             salvar_resultado(novo_resultado)
                             
+                            # --- RESPOSTAS PERSONALIZADAS DA ADRIELLE ---
                             if acertou:
-                                st.success("✅ Resposta Correta!")
+                                if st.session_state.usuario == "Adrielle":
+                                    msg = random.choice(["Foi cagada, aposto, mas acertou!", "Acertou! nunca duvidei ein"])
+                                else:
+                                    msg = "✅ Resposta Correta!"
+                                st.success(msg)
                             else:
-                                st.error(f"❌ Resposta Incorreta. A correta era: {q['resposta_correta']}")
-                            
+                                if st.session_state.usuario == "Adrielle":
+                                    msg = random.choice(["errou feio, errou rude", "errou, véia pôde"])
+                                else:
+                                    msg = "❌ Resposta Incorreta."
+                                st.error(f"{msg} A correta era: {q['resposta_correta']}")
+                                
                             with st.expander("Ver Explicação"):
                                 st.write(q['explicacao'])
                         else:
                             st.warning("Selecione uma alternativa antes de responder.")
                     st.divider()
-
     # --- ABA 2: RELATÓRIOS ---
     with aba_relatorios:
         st.header("Seu Desempenho")
